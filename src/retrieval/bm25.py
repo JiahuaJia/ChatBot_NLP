@@ -28,6 +28,11 @@ def _load_corpus() -> tuple[list[str], list[str], list[dict]]:
     return ids, docs, metas
 
 
+def clear_cache() -> None:
+    """Clear the corpus cache so newly added movies are included in BM25."""
+    _load_corpus.cache_clear()
+
+
 def bm25_search(query: str, n: int = RETRIEVAL_CANDIDATES) -> list[dict]:
     """Return top-n BM25 results with id, text, metadata, score."""
     ids, docs, metas = _load_corpus()

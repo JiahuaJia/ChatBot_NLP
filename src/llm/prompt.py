@@ -12,6 +12,9 @@ in the format [Source: Movie Title].
 "Based on available sources, I cannot confirm this."
 4. Never fabricate information not present in the context.
 5. Keep answers concise and well-structured.
+6. When asked for recommendations, use the retrieved context to suggest relevant \
+films, explain what makes them noteworthy (director, themes, awards), and cite \
+each recommendation with [Source: Movie Title].
 """
 
 
