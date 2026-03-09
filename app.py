@@ -1,5 +1,8 @@
 """Movie RAG Chatbot — Streamlit UI."""
 
+import re
+from collections import Counter
+
 import chromadb
 import streamlit as st
 from dotenv import load_dotenv
@@ -68,6 +71,38 @@ def _is_low_confidence(chunks: list[dict]) -> bool:
     return False
 
 
+_RECOMMEND_KW = {
+    "recommend", "推荐", "suggest", "best", "top", "classic",
+    "what should i watch", "好看", "好片", "经典", "必看",
+}
+
+
+def _is_recommendation_query(query: str) -> bool:
+    """True if query asks for broad recommendations (no specific movie)."""
+    q = query.lower()
+    return any(k in q for k in _RECOMMEND_KW)
+
+
+def _get_active_movie(history: list[dict]) -> str | None:
+    """Extract the most-cited movie from the last assistant message."""
+    for msg in reversed(history):
+        if msg["role"] == "assistant":
+            matches = re.findall(r"\[Source: ([^\]]+)\]", msg["content"])
+            if matches:
+                return Counter(matches).most_common(1)[0][0]
+    return None
+
+
+def _is_followup_query(query: str) -> bool:
+    """True if query is likely a follow-up (short or uses pronouns/references)."""
+    q = query.lower().strip()
+    if len(q.split()) <= 5:
+        return True
+    followup_words = {"it", "its", "this", "that", "the film", "the movie",
+                      "more", "detail", "细节", "更多", "详细", "继续", "还有"}
+    return any(w in q for w in followup_words)
+
+
 # ── Sidebar ────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("🎬 Movie RAG")
@@ -122,9 +157,23 @@ if query := st.chat_input("Ask about any movie..."):
 
     # Generate and stream answer
     with st.chat_message("assistant"):
+        # ── Step 0: Rewrite query for better retrieval ─────────────────────
+        history = get_history(st.session_state)
+        search_query = query
+
+        if _is_recommendation_query(query):
+            search_query = "award winning critically acclaimed Oscar classic Hollywood film director"
+            retrieval_k = 15
+        else:
+            retrieval_k = TOP_K
+            if _is_followup_query(query):
+                active = _get_active_movie(history)
+                if active:
+                    search_query = f"{active} {query}"
+
         # ── Step 1: Initial retrieval ──────────────────────────────────────
         with st.spinner("Searching knowledge base..."):
-            chunks = hybrid_search(query, top_k=TOP_K)
+            chunks = hybrid_search(search_query, top_k=retrieval_k)
 
         # ── Step 2: On-demand fetch if confidence is low ───────────────────
         if _is_low_confidence(chunks):
@@ -140,12 +189,11 @@ if query := st.chat_input("Ask about any movie..."):
                     )
                     # Re-run retrieval with the newly indexed movie
                     with st.spinner("Re-searching..."):
-                        chunks = hybrid_search(query, top_k=TOP_K)
+                        chunks = hybrid_search(search_query, top_k=retrieval_k)
                 except Exception:
                     pass  # Graceful fallback: use original (possibly empty) chunks
 
         # ── Step 3: Build prompt & stream answer ───────────────────────────
-        history = get_history(st.session_state)
         messages = build_messages(query, chunks, history)
 
         response_placeholder = st.empty()
